@@ -24,6 +24,7 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -46,4 +47,7 @@ dependencies {
 
     implementation files('libs/nxpnfcandroidlib-release.aar')
     implementation 'com.google.firebase:firebase-core:16.0.7'
+    /*implementation group: 'com.madgag.spongycastle', name: 'pkix', version: '1.54.0.0'
+    implementation group: 'com.madgag.spongycastle', name: 'prov', version: '1.54.0.0'
+    implementation group: 'com.madgag.spongycastle', name: 'core', version: '1.54.0.0'*/
 }
