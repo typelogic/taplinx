@@ -9,6 +9,7 @@ import com.nxp.nfclib.NxpNfcLib
 import com.nxp.nfclib.defaultimpl.KeyData
 import com.nxp.nfclib.desfire.*
 import com.nxp.nfclib.desfire.DESFireFile.StdDataFileSettings
+import com.nxp.nfclib.desfire.DESFireFile.BackupDataFileSettings
 import com.nxp.nfclib.exceptions.NxpNfcLibException
 import com.nxp.nfclib.interfaces.IKeyData
 import com.nxp.nfclib.utils.Utilities
@@ -20,14 +21,71 @@ import java.nio.ByteBuffer
 import java.util.*
 import javax.crypto.spec.SecretKeySpec
 
-data class MyFileSettings(val settings : DESFireFile.FileSettings,val len:Int) {}
+var KEYMAP = HashMap<String, KeyElem>()
 
-fun IDESFireEV2.getFileSettings(fileNo: Byte) : MyFileSettings {
-    val response = this.reader.transceive(
-        byteArrayOf(0x90.toByte(),0xF5.toByte(), 0x00, 0x00, 0x01, fileNo, 0x00))
+fun IDESFireEV2.AUTHENTICATE(aid: ByteArray, keyNo: Int, key: String) {
+    try {
+        selectApplication(aid)
+        with(KEYMAP[key]) {
+            authenticate(keyNo, this!!.authtype, this!!.keytype, keydata)
+        }
+    } catch (e: Exception) {
+        Log.e(MainActivity.TAG, "authenticate failed: " + e.message)
+        throw e
+    }
+}
+
+fun IDESFireEV2.getApplicationKeySettings(): EV2ApplicationKeySettings.Builder {
+    val settings = keySettings.toByteArray()
+    val settingsBuilder = EV2ApplicationKeySettings.Builder()
+
+    val buf = settings[0]
+    val ckk = buf.toInt().shr(4).toByte()
+    val settingBits = BitSet.valueOf(settings)
+
+    settingsBuilder
+        .setAppKeySettingsChangeable(settingBits.get(3))
+        .setAuthenticationRequiredForFileManagement(!settingBits.get(2))
+        .setAuthenticationRequiredForDirectoryConfigurationData(!settingBits.get(1))
+        .setAppMasterKeyChangeable(settingBits.get(0))
+        .setAppKeyChangeAccessRight(ckk)
+
+    return settingsBuilder
+}
+
+fun IDESFireEV2.getPICCKeySettings(): EV1PICCKeySettings.Builder {
+    val settings = keySettings.toByteArray()
+    val settingsBuilder = EV1PICCKeySettings.Builder()
+
+    val settingBits = BitSet.valueOf(settings)
+
+    settingsBuilder
+            .setPiccKeySettingsChangeable(settingBits.get(3))
+            .setAuthenticationRequiredForApplicationManagement(!settingBits.get(2))
+            .setAuthenticationRequiredForDirectoryConfigurationData(!settingBits.get(1))
+            .setPiccMasterKeyChangeable(settingBits.get(0))
+
+    return settingsBuilder
+}
+
+/**
+ * getFileSettings2 is kept for reference purposes showing usage of
+ * sending raw APDU via the transceive API
+ */
+fun IDESFireEV2.getFileSettings2(fileNo: Byte) : DESFireFile.FileSettings {
+
+    // Calling this first because the transceive call below seems to reset the
+    // current authenticated state
+    val fs = getFileSettings(fileNo.toInt())
+
+    val n = "%02d".format(fileNo)
+    val cmdstring =  "90F50000 01${n}00"
+    val cmdbuf = Utilities.stringToBytes(cmdstring)
+
+    val response = this.reader.transceive(cmdbuf)
 
     val sw = response.takeLast(2).toByteArray()
-    if (!Arrays.equals(sw, byteArrayOf(0x91.toByte(), 0x00))) {
+    if (!Arrays.equals(sw, Utilities.stringToBytes("9100"))) {
         throw SecurityException("Failed to get file size for file ${fileNo}")
     }
 
@@ -36,7 +94,6 @@ fun IDESFireEV2.getFileSettings(fileNo: Byte) : MyFileSettings {
     val buf4 = ByteArray(4)
     buf3.copyInto(buf4,1, 0, buf3.size)
     val fileSize = ByteBuffer.wrap(buf4).int
-    val fs = this.getFileSettings(fileNo.toInt())
     val settings = StdDataFileSettings(
             fs.comSettings,
             fs.readAccess,
@@ -45,25 +102,25 @@ fun IDESFireEV2.getFileSettings(fileNo: Byte) : MyFileSettings {
             fs.changeAccess,
             fileSize)
 
-    return MyFileSettings(settings, fileSize)
+    return settings
 }
 
-data class KeyElem (val keytype: KeyType, val keydata: IKeyData, val keybuf:ByteArray, val authtype:IDESFireEV1.AuthType)
+data class KeyElem (val keytype: KeyType, val keydata: IKeyData,
+                    val keybuf:ByteArray, val authtype:IDESFireEV1.AuthType)
 
 class MainActivity : AppCompatActivity() {
 
     lateinit private var libInstance: NxpNfcLib
 
-    var keymap = HashMap<String, KeyElem>()
-
     companion object {
-        val APP01 = byteArrayOf(0x00, 0x00, 0x01)
-        val APP02 = byteArrayOf(0x00, 0x00, 0x02)
-        val APP03 = byteArrayOf(0x00, 0x00, 0x03)
-        val APP04 = byteArrayOf(0x00, 0x00, 0x04)
-        val APP05 = byteArrayOf(0x00, 0x00, 0x05)
+        val PICC  = Utilities.stringToBytes("000000")
+        val APP01 = Utilities.stringToBytes("000001")
+        val APP02 = Utilities.stringToBytes("000002")
+        val APP03 = Utilities.stringToBytes("000003")
+        val APP04 = Utilities.stringToBytes("000004")
+        val APP05 = Utilities.stringToBytes("000005")
 
-        val fileContent = byteArrayOf(0xFA.toByte(), 0xCE.toByte(), 0xBA.toByte(), 0xBE.toByte())
+        val fileContent = Utilities.stringToBytes("FACEBABE")
         const val licenseKey = "f00ce3219672be96dc487e971d62ff2f"
         const val TAG = "MainActivity "
 
@@ -75,49 +132,13 @@ class MainActivity : AppCompatActivity() {
         var key6: IKeyData? = null
         var key7: IKeyData? = null
 
-        val keybuf1 = byteArrayOf( // AES default
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte())
-
-        val keybuf2 = byteArrayOf( // THREEDES default
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte())
-
-        val keybuf3 = byteArrayOf(
-                0xA0.toByte(), 0xA1.toByte(), 0xA2.toByte(), 0xA3.toByte(),
-                0xA4.toByte(), 0xA5.toByte(), 0xA6.toByte(), 0xA7.toByte(),
-                0xA8.toByte(), 0xA9.toByte(), 0xAA.toByte(), 0xAB.toByte(),
-                0xAC.toByte(), 0xAD.toByte(), 0xAE.toByte(), 0xAF.toByte())
-
-        val keybuf4 = byteArrayOf(
-                0xB0.toByte(), 0xB1.toByte(), 0xB2.toByte(), 0xB3.toByte(),
-                0xB4.toByte(), 0xB5.toByte(), 0xB6.toByte(), 0xB7.toByte(),
-                0xB8.toByte(), 0xB9.toByte(), 0xBA.toByte(), 0xBB.toByte(),
-                0xBC.toByte(), 0xBD.toByte(), 0xBE.toByte(), 0xBF.toByte())
-
-        val keybuf5 = byteArrayOf( // other card's PICC AES key
-                0xCA.toByte(), 0x2D.toByte(), 0xAE.toByte(), 0x50.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x01.toByte())
-
-        val keybuf6 = byteArrayOf( // THREE_KEY_3DES default
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte(),
-                0x00.toByte(), 0x00.toByte(), 0x00.toByte(), 0x00.toByte())
-
-        val keybuf7 = byteArrayOf(
-                0xC0.toByte(), 0xC1.toByte(), 0xC2.toByte(), 0xC3.toByte(),
-                0xC4.toByte(), 0xC5.toByte(), 0xC6.toByte(), 0xC7.toByte(),
-                0xC8.toByte(), 0xC9.toByte(), 0xCA.toByte(), 0xCB.toByte(),
-                0xCC.toByte(), 0xCD.toByte(), 0xCE.toByte(), 0xCF.toByte())
+        val keybuf1 = Utilities.stringToBytes("0000000000000000 0000000000000000") // AES default
+        val keybuf2 = Utilities.stringToBytes("0000000000000000 0000000000000000") // THREEDES default
+        val keybuf3 = Utilities.stringToBytes("A0A1A2A3A4A5A6A7 A8A9AAABACADAEAF")
+        val keybuf4 = Utilities.stringToBytes("B0B1B2B3B4B5B6B7 B8B9BABBBCBDBEBF")
+        val keybuf5 = Utilities.stringToBytes("CA2DAE5000000000 0000000000000001") // other card's PICC AES key
+        val keybuf6 = Utilities.stringToBytes("0000000000000000 0000000000000000 0000000000000000")  // THREE_KEY_3DES default
+        val keybuf7 = Utilities.stringToBytes("C0C1C2C3C4C5C6C7 C8C9CACBCCCDCECF")
 
         val timeOut = 2000
     }
@@ -194,16 +215,16 @@ class MainActivity : AppCompatActivity() {
         key5 = kd5
 
         var kd6 = KeyData()
-        kd6.key = SecretKeySpec(keybuf6, "DESede") // ?!?
+        kd6.key = SecretKeySpec(keybuf6, "DESede")
         key6 = kd6
 
         var kd7 = KeyData()
         kd7.key = SecretKeySpec(keybuf7, "AES")
         key7 = kd7
 
-        with (keymap) {
-            put("key1", KeyElem(KeyType.AES128, key1 as KeyData, keybuf1, IDESFireEV1.AuthType.AES))
-            put("key2", KeyElem(KeyType.THREEDES, key2 as KeyData, keybuf2, IDESFireEV1.AuthType.Native))
+        with (KEYMAP) {
+            put("default_AES", KeyElem(KeyType.AES128, key1 as KeyData, keybuf1, IDESFireEV1.AuthType.AES))
+            put("default_DES", KeyElem(KeyType.THREEDES, key2 as KeyData, keybuf2, IDESFireEV1.AuthType.Native))
             put("key3", KeyElem(KeyType.TWO_KEY_THREEDES, key3 as KeyData, keybuf3, IDESFireEV1.AuthType.Native))
             put("key4", KeyElem(KeyType.TWO_KEY_THREEDES, key4 as KeyData, keybuf4, IDESFireEV1.AuthType.Native))
             put("key5", KeyElem(KeyType.AES128, key5 as KeyData, keybuf5, IDESFireEV1.AuthType.AES))
@@ -237,16 +258,19 @@ class MainActivity : AppCompatActivity() {
                         //readFromCard(desFireEV2)
                         //writeToCard(desFireEV2)
                         //createApp(desFireEV2)
-                        //writeFile(desFireEV2)
                         //changePICCSettings(desFireEV2)
                         //changePICCKey(desFireEV2)
                         //formatCard(desFireEV2)
                         //formatCard2(desFireEV2)
 
-                        //createApp2(desFireEV2)
-                        //createFile(desFireEV2)
+                        //changeApplicationSettings(desFireEV2)
                         //changeApplicationKey(desFireEV2)
                         //readFile(desFireEV2)
+
+                        createApp2(desFireEV2)
+                        createFile(desFireEV2)
+                        writeFile(desFireEV2)
+                        readFromCard2(desFireEV2)
 
                     } catch (t: Throwable) {
                         Log.i(TAG,"Unknown Error Tap Again")
@@ -267,10 +291,10 @@ class MainActivity : AppCompatActivity() {
             desFireEV2.selectApplication(APP03)
             desFireEV2.authenticate(keyNo, IDESFireEV1.AuthType.Native, KeyType.THREEDES, key2)
 
-            val se = desFireEV2.getFileSettings(fileNo.toByte())
+            val se = desFireEV2.getFileSettings(fileNo)
 
-            when (se.settings.type) {
-                DESFireFile.FileType.DataStandard, DESFireFile.FileType.DataBackup -> {
+            when (se.type) {
+                DESFireFile.FileType.DataStandard -> {
 
                     val ks = desFireEV2.keySettings
                     Log.i(TAG, "ks: " + Utilities.byteToHexString(ks.toByteArray()))
@@ -279,9 +303,13 @@ class MainActivity : AppCompatActivity() {
                     Log.i(TAG, "file ids: " + Utilities.byteToHexString(fids))
 
                     val fileOffset = 0
-                    val fileSize = se.len
+                    val fileSize = (se as StdDataFileSettings).fileSize
                     val content = desFireEV2.readData(fileNo, fileOffset, fileSize)
                     Log.i(TAG, "File${fileNo} content: " + Utilities.byteToHexString(content))
+                }
+
+                DESFireFile.FileType.DataBackup -> {
+                    val fileSize = (se as BackupDataFileSettings).fileSize
                 }
 
                 else -> {
@@ -294,31 +322,69 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun readFromCard2(desFireEV2: IDESFireEV2) {
+        try {
+
+            val fileNo = 0
+            var keyNo = 1
+            desFireEV2.AUTHENTICATE(APP01, keyNo, "default_AES")
+
+            val see = desFireEV2.getFileSettings(fileNo)
+            val fids = desFireEV2.fileIDs // {0}
+            Log.i(TAG, "file ids: " + Utilities.byteToHexString(fids))
+
+            when (see.type) {
+
+                DESFireFile.FileType.DataStandard -> {
+
+                    val fileOffset = 0
+                    val fileSize = (see as StdDataFileSettings).fileSize
+                    val content = desFireEV2.readData(fileNo, fileOffset, fileSize)
+                    Log.i(TAG, "DataStandard File${fileNo} content: " + Utilities.byteToHexString(content))
+                }
+
+                DESFireFile.FileType.DataBackup -> {
+                    val fileOffset = 0
+                    val fileSize = (see as BackupDataFileSettings).fileSize
+                    val content = desFireEV2.readData(fileNo, fileOffset, fileSize)
+                    Log.i(TAG, "DataBackup File${fileNo} content: " + Utilities.byteToHexString(content))
+                }
+
+                else -> {
+                    Log.i(TAG, "Other file type noimpl")
+                }
+            }
+
+        } catch (e: java.lang.Exception) {
+            Log.i(TAG,e.message)
+        }
+    }
+
     private fun changeApplicationSettings(desFireEV2: IDESFireEV2) {
 
         try {
-            var keyNo = 0x00
-            desFireEV2.selectApplication(APP01)
-            desFireEV2.authenticate(keyNo, IDESFireEV1.AuthType.Native, KeyType.THREEDES, key2)
+            desFireEV2.AUTHENTICATE(APP01,0,"default_AES")
 
-            val s = EV1PICCKeySettings.Builder()
-                    .setAuthenticationRequiredForApplicationManagement(false)
-                    .setAuthenticationRequiredForDirectoryConfigurationData(true)
-                    .setPiccKeySettingsChangeable(true)
-                    .setPiccMasterKeyChangeable(true)
-                    .build()
+            //val builder = getApplicationKeySettings(desFireEV2.keySettings)
+            val builder = desFireEV2.getApplicationKeySettings()
 
-            Log.i(TAG, "s = " + Utilities.byteToHexString(s.toByteArray()))
-            desFireEV2.changeKeySettings(s)
+            builder
+                .setAuthenticationRequiredForDirectoryConfigurationData(true)
+                .setAuthenticationRequiredForFileManagement(true)
+            val setting = builder.build()
+
+            Log.i(TAG, "s = " + Utilities.byteToHexString(setting.toByteArray()))
+            desFireEV2.changeKeySettings(setting)
 
         } catch (e: Exception) {
             Log.e(TAG, e.message)
         }
     }
 
-    private fun AUTHENTICATE(desFireEV2: IDESFireEV2, key: String, keyNo: Int) {
+    private fun AUTHENTICATE(desFireEV2: IDESFireEV2, key: String, keyNo: Int, aid: ByteArray) {
         try {
-            with(keymap[key]) {
+            desFireEV2.selectApplication(aid)
+            with(KEYMAP[key]) {
                 desFireEV2.authenticate(keyNo, this!!.authtype, this!!.keytype, keydata)
             }
         } catch (e: Exception) {
@@ -329,9 +395,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun CHANGEKEY(desFireEV2: IDESFireEV2, changeNo: Int, oldKey:String, newKey:String, kvno:Byte) {
         try {
-            val keytype = keymap[newKey]?.keytype
-            val currentBuf = keymap[oldKey]?.keybuf
-            val newBuf = keymap[newKey]?.keybuf
+            val keytype = KEYMAP[newKey]?.keytype
+            val currentBuf = KEYMAP[oldKey]?.keybuf
+            val newBuf = KEYMAP[newKey]?.keybuf
             desFireEV2.changeKey(changeNo, keytype, currentBuf, newBuf, kvno)
         } catch (e: java.lang.Exception) {
             Log.e(TAG, "changeKey failed: " + e.message)
@@ -353,9 +419,8 @@ class MainActivity : AppCompatActivity() {
                 THREE_KEY_THREEDES <---> THREE_KEY_THREEDES
              */
 
-            desFireEV2.selectApplication(APP01)
-            AUTHENTICATE(desFireEV2, "key1", keyNo)
-            CHANGEKEY(desFireEV2, changeNo, "key1", "key7", kvno.toByte())
+            AUTHENTICATE(desFireEV2, "default_AES", keyNo, APP01)
+            CHANGEKEY(desFireEV2, changeNo, "default_AES", "key7", kvno.toByte())
 
             /*
             val appSetting = EV2ApplicationKeySettings.Builder()
@@ -386,7 +451,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun changePICCSettings(desFireEV2: IDESFireEV2) {
-
         try {
             var keyNo = 0x00
             desFireEV2.selectApplication(0)
@@ -424,7 +488,6 @@ class MainActivity : AppCompatActivity() {
                     .build()
 
             desFireEV2.createApplication(APP01, appSetting)
-            //desFireEV2.changeKey(0, KeyType.THREEDES, keybuf2, keybuf3, 0x42)
 
         } catch (e: java.lang.Exception) {
             Log.e(TAG, e.message)
@@ -435,9 +498,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
 
-            var keyNo = 0x00
-            desFireEV2.selectApplication(0)
-            AUTHENTICATE(desFireEV2, "key2", keyNo)
+            desFireEV2.AUTHENTICATE(PICC, 0, "default_DES")
 
             val appSetting = EV2ApplicationKeySettings.Builder()
                     .setMaxNumberOfApplicationKeys(10)
@@ -459,19 +520,21 @@ class MainActivity : AppCompatActivity() {
     private fun createFile(desFireEV2: IDESFireEV2) {
 
         try {
-            var keyNo = 0x00
-            desFireEV2.selectApplication(APP01)
-            AUTHENTICATE(desFireEV2, "key1", keyNo)
+            val keyNo = 0
+            AUTHENTICATE(desFireEV2, "default_AES", keyNo, APP01)
 
-            val fileNo = 0x00
+            val fileNo = 0
             val fileSize = 32
-            desFireEV2.createFile(
-                    fileNo,
-                    StdDataFileSettings(
-                            IDESFireEV1.CommunicationType.Enciphered,
-                            0x01, 0x02, 0x03, 0x04,
-                            fileSize)
+
+            desFireEV2.createFile (
+                fileNo,
+                StdDataFileSettings(
+                    IDESFireEV1.CommunicationType.Enciphered,
+                    0x01, 0x02, 0x03, 0x04,
+                    fileSize
+                )
             )
+
         } catch (e: Exception) {
             Log.e(TAG, e.message)
         }
@@ -481,8 +544,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
             var keyNo = 0x02
-            desFireEV2.selectApplication(APP01)
-            desFireEV2.authenticate(keyNo, IDESFireEV1.AuthType.Native, KeyType.THREEDES, key2)
+            desFireEV2.AUTHENTICATE(APP01, keyNo, "default_AES")
 
             val fileNo = 0
             val fileOffset = 0
@@ -495,14 +557,13 @@ class MainActivity : AppCompatActivity() {
     private fun readFile(desFireEV2: IDESFireEV2) {
 
         try {
-            var keyNo = 0x03
-            desFireEV2.selectApplication(APP01)
-            AUTHENTICATE(desFireEV2, "key2", keyNo)
+            var keyNo = 0x01
+            AUTHENTICATE(desFireEV2, "default_AES", keyNo, APP01)
 
             val fileNo = 0
-            val se = desFireEV2.getFileSettings(fileNo.toByte())
+            val se = desFireEV2.getFileSettings(fileNo)
             val fileOffset = 0
-            val fileSize = se.len
+            val fileSize = (se as StdDataFileSettings).fileSize
             val content = desFireEV2.readData(fileNo, fileOffset, fileSize)
             Log.i(TAG, "content = ${Utilities.byteToHexString(content)}")
         } catch (e: Exception) {
