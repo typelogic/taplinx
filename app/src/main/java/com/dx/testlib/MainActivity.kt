@@ -241,10 +241,11 @@ class MainActivity : AppCompatActivity() {
                         //changePICCSettings(desFireEV2)
                         //changePICCKey(desFireEV2)
                         //formatCard(desFireEV2)
+                        //formatCard2(desFireEV2)
 
                         //createApp2(desFireEV2)
                         //createFile(desFireEV2)
-                        changeApplicationKey(desFireEV2)
+                        //changeApplicationKey(desFireEV2)
                         //readFile(desFireEV2)
 
                     } catch (t: Throwable) {
@@ -599,6 +600,44 @@ class MainActivity : AppCompatActivity() {
         } catch (e: java.lang.Exception) {
             Log.i(TAG,"Format failed: ${e.message}")
         }
+    }
+
+    private fun formatCard2(desFireEV2: IDESFireEV2) {
+
+        val keys = listOf<ByteArray>(
+                Utilities.stringToBytes("AABBCCDDEEFF0011A4BBCCDDEEFF0011"), // <---
+                Utilities.stringToBytes("aabaccdceefe0010aabaccdceefe0010"),
+                Utilities.stringToBytes("404142434445464748494a4b4c4d4e4F"),
+                Utilities.stringToBytes("DEC0DE0102030405060708090A0B0C0D"),
+                Utilities.stringToBytes("CAFEBABE0102030405060708090A0B0C"),
+                Utilities.stringToBytes("C0FFEE0102030405060708090A0B0C0D"),
+                Utilities.stringToBytes("B000B50102030405060708090A0B0C0D"),
+                Utilities.stringToBytes("BADA550102030405060708090A0B0C0D"),
+                Utilities.stringToBytes("FACADE0102030405060708090A0B0C0D"),
+                Utilities.stringToBytes("0FF1C30102030405060708090A0B0C0D"),
+                Utilities.stringToBytes("4CC3550102030405060708090A0B0C0D"),
+                Utilities.stringToBytes("ADD1C70102030405060708090A0B0C0D"),
+                Utilities.stringToBytes("09C0DE0102030405060708090A0B0C0D")
+        )
+
+        for (key in keys) {
+            println("using key ${Utilities.byteToHexString(key)}")
+            var KEY: IKeyData? = null
+            val kd = KeyData()
+            kd.key = SecretKeySpec(key, "DESede")
+            KEY = kd
+
+            try {
+                desFireEV2.selectApplication(0)
+                desFireEV2.authenticate(0, IDESFireEV1.AuthType.Native, KeyType.THREEDES, KEY)
+                desFireEV2.format();
+                Log.i(TAG, "Format success")
+                break
+            } catch (e: java.lang.Exception) {
+            }
+        }
+
+        println("-- done --")
     }
 }
 
