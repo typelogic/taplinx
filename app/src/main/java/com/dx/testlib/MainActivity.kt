@@ -258,19 +258,22 @@ class MainActivity : AppCompatActivity() {
                         //readFromCard(desFireEV2)
                         //writeToCard(desFireEV2)
                         //createApp(desFireEV2)
-                        //changePICCSettings(desFireEV2)
                         //changePICCKey(desFireEV2)
+                        //changePICCSettings(desFireEV2)
                         //formatCard(desFireEV2)
                         //formatCard2(desFireEV2)
 
                         //changeApplicationSettings(desFireEV2)
-                        //changeApplicationKey(desFireEV2)
                         //readFile(desFireEV2)
+                        //deleteFile(desFireEV2)
 
                         createApp2(desFireEV2)
-                        createFile(desFireEV2)
-                        writeFile(desFireEV2)
-                        readFromCard2(desFireEV2)
+                        changeApplicationKey(desFireEV2)
+                        changeApplicationSettings(desFireEV2)
+                        //createFile(desFireEV2)
+                        //writeFile(desFireEV2)
+                        //readFromCard2(desFireEV2)
+                        deleteApplication(desFireEV2)
 
                     } catch (t: Throwable) {
                         Log.i(TAG,"Unknown Error Tap Again")
@@ -322,6 +325,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun deleteApplication(desFireEV2: IDESFireEV2) {
+
+        try {
+            //////////////////////////////////////////////////////////
+            // The application can delete itself by authenticating to
+            // the application master key
+            //desFireEV2.AUTHENTICATE(APP01, 0, "key7")
+            //desFireEV2.deleteApplication(APP01)
+
+            //////////////////////////////////////////////////////////
+            // The application can be deleted, too, by authenticating
+            // to the PICC master key
+            desFireEV2.AUTHENTICATE(PICC, 0, "default_DES")
+            desFireEV2.deleteApplication(APP01)
+
+        } catch (e:Exception) {
+            Log.e(TAG,e.message)
+        }
+    }
+
     private fun readFromCard2(desFireEV2: IDESFireEV2) {
         try {
 
@@ -363,14 +386,14 @@ class MainActivity : AppCompatActivity() {
     private fun changeApplicationSettings(desFireEV2: IDESFireEV2) {
 
         try {
-            desFireEV2.AUTHENTICATE(APP01,0,"default_AES")
+            //desFireEV2.AUTHENTICATE(APP01,0,"default_AES")
+            desFireEV2.AUTHENTICATE(APP01,0,"key7")
 
-            //val builder = getApplicationKeySettings(desFireEV2.keySettings)
             val builder = desFireEV2.getApplicationKeySettings()
 
             builder
                 .setAuthenticationRequiredForDirectoryConfigurationData(true)
-                .setAuthenticationRequiredForFileManagement(true)
+                .setAuthenticationRequiredForFileManagement(false)
             val setting = builder.build()
 
             Log.i(TAG, "s = " + Utilities.byteToHexString(setting.toByteArray()))
@@ -378,18 +401,6 @@ class MainActivity : AppCompatActivity() {
 
         } catch (e: Exception) {
             Log.e(TAG, e.message)
-        }
-    }
-
-    private fun AUTHENTICATE(desFireEV2: IDESFireEV2, key: String, keyNo: Int, aid: ByteArray) {
-        try {
-            desFireEV2.selectApplication(aid)
-            with(KEYMAP[key]) {
-                desFireEV2.authenticate(keyNo, this!!.authtype, this!!.keytype, keydata)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "authenticate failed: " + e.message)
-            throw e
         }
     }
 
@@ -408,8 +419,8 @@ class MainActivity : AppCompatActivity() {
     private fun changeApplicationKey(desFireEV2: IDESFireEV2) {
         try {
             val kvno = 42
-            val keyNo = 7
-            val changeNo = 5
+            val keyNo = 0
+            val changeNo = 0
 
             /**
              * Application change key compatbility:
@@ -419,20 +430,9 @@ class MainActivity : AppCompatActivity() {
                 THREE_KEY_THREEDES <---> THREE_KEY_THREEDES
              */
 
-            AUTHENTICATE(desFireEV2, "default_AES", keyNo, APP01)
+            desFireEV2.AUTHENTICATE(APP01, keyNo, "default_AES")
+
             CHANGEKEY(desFireEV2, changeNo, "default_AES", "key7", kvno.toByte())
-
-            /*
-            val appSetting = EV2ApplicationKeySettings.Builder()
-                    .setAppKeySettingsChangeable(true)
-                    .setAuthenticationRequiredForDirectoryConfigurationData(true)
-                    .setAuthenticationRequiredForFileManagement(false)
-                    .setAppMasterKeyChangeable(true)
-                    .setAppKeyChangeAccessRight(0x7)
-                    .build()
-
-            desFireEV2.changeKeySettings(appSetting)
-             */
 
         } catch (e: Exception) {
             Log.e(TAG, e.message)
@@ -521,7 +521,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
             val keyNo = 0
-            AUTHENTICATE(desFireEV2, "default_AES", keyNo, APP01)
+            desFireEV2.AUTHENTICATE(APP01, keyNo, "key7")
 
             val fileNo = 0
             val fileSize = 32
@@ -554,11 +554,32 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun deleteFile(desFireEV2: IDESFireEV2) {
+
+        /***********************************************
+        A file can only be deleted by authenticating to
+        the application master key.
+
+        An attempt to authenticate to the PICC master key
+        and delete a file, throws a `Permission denied`
+        exception.
+        */
+
+        try {
+            val fileNo = 0x00
+            val keyNo = 0x00
+            desFireEV2.AUTHENTICATE(APP01, keyNo, "key7")
+            desFireEV2.deleteFile(fileNo)
+        } catch (e: Exception) {
+            Log.e(TAG, e.message)
+        }
+    }
+
     private fun readFile(desFireEV2: IDESFireEV2) {
 
         try {
             var keyNo = 0x01
-            AUTHENTICATE(desFireEV2, "default_AES", keyNo, APP01)
+            desFireEV2.AUTHENTICATE(APP01, keyNo, "default_AES")
 
             val fileNo = 0
             val se = desFireEV2.getFileSettings(fileNo)
