@@ -35,6 +35,18 @@ fun IDESFireEV2.AUTHENTICATE(aid: ByteArray, keyNo: Int, key: String) {
     }
 }
 
+fun IDESFireEV2.CHANGEKEY(changeNo: Int, oldKey:String, newKey:String, kvno:Byte) {
+    try {
+        val keytype = KEYMAP[newKey]?.keytype
+        val currentBuf = KEYMAP[oldKey]?.keybuf
+        val newBuf = KEYMAP[newKey]?.keybuf
+        changeKey(changeNo, keytype, currentBuf, newBuf, kvno)
+    } catch (e: java.lang.Exception) {
+        Log.e(MainActivity.TAG, "changeKey failed: " + e.message)
+        throw e
+    }
+}
+
 fun IDESFireEV2.getApplicationKeySettings(): EV2ApplicationKeySettings.Builder {
     val settings = keySettings.toByteArray()
     val settingsBuilder = EV2ApplicationKeySettings.Builder()
@@ -131,6 +143,9 @@ class MainActivity : AppCompatActivity() {
         var key5: IKeyData? = null
         var key6: IKeyData? = null
         var key7: IKeyData? = null
+        var key8: IKeyData? = null
+        var key9: IKeyData? = null
+        var keya: IKeyData? = null
 
         val keybuf1 = Utilities.stringToBytes("0000000000000000 0000000000000000") // AES default
         val keybuf2 = Utilities.stringToBytes("0000000000000000 0000000000000000") // THREEDES default
@@ -139,6 +154,9 @@ class MainActivity : AppCompatActivity() {
         val keybuf5 = Utilities.stringToBytes("CA2DAE5000000000 0000000000000001") // other card's PICC AES key
         val keybuf6 = Utilities.stringToBytes("0000000000000000 0000000000000000 0000000000000000")  // THREE_KEY_3DES default
         val keybuf7 = Utilities.stringToBytes("C0C1C2C3C4C5C6C7 C8C9CACBCCCDCECF")
+        val keybuf8 = Utilities.stringToBytes("2300BED4F0BCF991 187A113145C5629F")
+        val keybuf9 = Utilities.stringToBytes("8864CAC8886F42E6 7C0AD04D5D9D76AC")
+        val keybufa = Utilities.stringToBytes("44873956FABE53C3 783622ABEB1D8405")
 
         val timeOut = 2000
     }
@@ -222,6 +240,18 @@ class MainActivity : AppCompatActivity() {
         kd7.key = SecretKeySpec(keybuf7, "AES")
         key7 = kd7
 
+        var kd8 = KeyData()
+        kd8.key = SecretKeySpec(keybuf8, "AES")
+        key8 = kd8
+
+        var kd9 = KeyData()
+        kd9.key = SecretKeySpec(keybuf9, "AES")
+        key9 = kd9
+
+        var kda = KeyData()
+        kda.key = SecretKeySpec(keybufa, "AES")
+        keya = kda
+
         with (KEYMAP) {
             put("default_AES", KeyElem(KeyType.AES128, key1 as KeyData, keybuf1, IDESFireEV1.AuthType.AES))
             put("default_DES", KeyElem(KeyType.THREEDES, key2 as KeyData, keybuf2, IDESFireEV1.AuthType.Native))
@@ -230,6 +260,9 @@ class MainActivity : AppCompatActivity() {
             put("key5", KeyElem(KeyType.AES128, key5 as KeyData, keybuf5, IDESFireEV1.AuthType.AES))
             put("key6", KeyElem(KeyType.THREE_KEY_THREEDES, key6 as KeyData, keybuf6, IDESFireEV1.AuthType.Native))
             put("key7", KeyElem(KeyType.AES128, key7 as KeyData, keybuf7, IDESFireEV1.AuthType.AES))
+            put("key8", KeyElem(KeyType.AES128, key8 as KeyData, keybuf8, IDESFireEV1.AuthType.AES))
+            put("key9", KeyElem(KeyType.AES128, key9 as KeyData, keybuf9, IDESFireEV1.AuthType.AES))
+            put("keya", KeyElem(KeyType.AES128, keya as KeyData, keybufa, IDESFireEV1.AuthType.AES))
         }
     }
 
@@ -262,18 +295,21 @@ class MainActivity : AppCompatActivity() {
                         //changePICCSettings(desFireEV2)
                         //formatCard(desFireEV2)
                         //formatCard2(desFireEV2)
+                        //_formatApplication(desFireEV2)
 
                         //changeApplicationSettings(desFireEV2)
                         //readFile(desFireEV2)
                         //deleteFile(desFireEV2)
 
-                        createApp2(desFireEV2)
-                        changeApplicationKey(desFireEV2)
-                        changeApplicationSettings(desFireEV2)
+                        //createApp2(desFireEV2)
+                        //changeApplicationKey(desFireEV2)
+                        //changeApplicationSettings(desFireEV2)
                         //createFile(desFireEV2)
                         //writeFile(desFireEV2)
                         //readFromCard2(desFireEV2)
-                        deleteApplication(desFireEV2)
+                        //deleteApplication(desFireEV2)
+
+                        misc(desFireEV2)
 
                     } catch (t: Throwable) {
                         Log.i(TAG,"Unknown Error Tap Again")
@@ -404,18 +440,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun CHANGEKEY(desFireEV2: IDESFireEV2, changeNo: Int, oldKey:String, newKey:String, kvno:Byte) {
-        try {
-            val keytype = KEYMAP[newKey]?.keytype
-            val currentBuf = KEYMAP[oldKey]?.keybuf
-            val newBuf = KEYMAP[newKey]?.keybuf
-            desFireEV2.changeKey(changeNo, keytype, currentBuf, newBuf, kvno)
-        } catch (e: java.lang.Exception) {
-            Log.e(TAG, "changeKey failed: " + e.message)
-            throw e
-        }
-    }
-
     private fun changeApplicationKey(desFireEV2: IDESFireEV2) {
         try {
             val kvno = 42
@@ -431,9 +455,17 @@ class MainActivity : AppCompatActivity() {
              */
 
             desFireEV2.AUTHENTICATE(APP01, keyNo, "default_AES")
+            desFireEV2.CHANGEKEY(changeNo, "default_AES", "keyf", kvno.toByte())
 
-            CHANGEKEY(desFireEV2, changeNo, "default_AES", "key7", kvno.toByte())
+        } catch (e: Exception) {
+            Log.e(TAG, e.message)
+        }
+    }
 
+    private fun misc(desFireEV2: IDESFireEV2) {
+        try {
+            val kvno = desFireEV2.getKeyVersionFor(0)
+            Log.e(TAG, "kvno: " + kvno)
         } catch (e: Exception) {
             Log.e(TAG, e.message)
         }
@@ -442,9 +474,10 @@ class MainActivity : AppCompatActivity() {
     private fun changePICCKey(desFireEV2: IDESFireEV2) {
         try {
             val keyNo = 0
-            desFireEV2.selectApplication(0)
-            desFireEV2.authenticate(keyNo, IDESFireEV1.AuthType.Native, KeyType.TWO_KEY_THREEDES, key4)
-            desFireEV2.changeKey(keyNo, KeyType.THREEDES, keybuf3, keybuf2, 0x00)
+
+            desFireEV2.AUTHENTICATE(PICC, keyNo, "default_AES")
+            desFireEV2.CHANGEKEY(keyNo, "default_AES", "default_DES", 0xDA.toByte())
+
         } catch (e: Exception) {
             Log.e(TAG, e.message)
         }
@@ -521,9 +554,9 @@ class MainActivity : AppCompatActivity() {
 
         try {
             val keyNo = 0
-            desFireEV2.AUTHENTICATE(APP01, keyNo, "key7")
+            desFireEV2.AUTHENTICATE(APP01, keyNo, "default_DES")
 
-            val fileNo = 0
+            val fileNo = 5
             val fileSize = 32
 
             desFireEV2.createFile (
@@ -566,9 +599,9 @@ class MainActivity : AppCompatActivity() {
         */
 
         try {
-            val fileNo = 0x00
+            val fileNo = 0x05
             val keyNo = 0x00
-            desFireEV2.AUTHENTICATE(APP01, keyNo, "key7")
+            desFireEV2.AUTHENTICATE(APP01, keyNo, "default_DES")
             desFireEV2.deleteFile(fileNo)
         } catch (e: Exception) {
             Log.e(TAG, e.message)
@@ -672,11 +705,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // An application cannot format itself. If you want that,
+    // then just delete the application (2 ways)
+    private fun _formatApplication(desFireEV2: IDESFireEV2) {
+        try {
+            desFireEV2.AUTHENTICATE(APP01, 0, "default_DES")
+            desFireEV2.format();
+            Log.i(TAG, "Format success")
+        } catch (e: java.lang.Exception) {
+            Log.i(TAG,"Format failed: ${e.message}")
+        }
+    }
+
     private fun formatCard(desFireEV2: IDESFireEV2) {
         try {
-            desFireEV2.selectApplication(0)
-            desFireEV2.authenticate(0, IDESFireEV1.AuthType.Native, KeyType.TWO_KEY_THREEDES, key4)
+            //desFireEV2.selectApplication(0)
+            //desFireEV2.authenticate(0, IDESFireEV1.AuthType.Native, KeyType.TWO_KEY_THREEDES, key4)
             //desFireEV2.authenticate(0, IDESFireEV1.AuthType.AES, KeyType.AES128, key5)
+
+            desFireEV2.AUTHENTICATE(PICC, 0, "key5")
             desFireEV2.format();
             Log.i(TAG, "Format success")
         } catch (e: java.lang.Exception) {
